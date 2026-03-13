@@ -6,7 +6,7 @@ import { Card } from './ui/card'
 import { Upload, FileText, X, CheckCircle } from 'lucide-react'
 import { storage } from '@/lib/storage'
 import type { CVData } from '@/lib/types'
-import * as pdfjsLib from 'pdfjs-dist'
+// Removed top-level pdfjsLib import to prevent SSR issues
 import * as mammoth from 'mammoth'
 
 interface CVUploadProps {
@@ -23,10 +23,6 @@ export function CVUploadComponent({ onCVSelected }: CVUploadProps) {
   useEffect(() => {
     const cv = storage.getCV()
     setSavedCV(cv || null)
-
-    if (typeof window !== 'undefined') {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js'
-    }
   }, [])
 
   const extractTextFromTxt = async (file: File): Promise<string> => {
@@ -38,28 +34,22 @@ export function CVUploadComponent({ onCVSelected }: CVUploadProps) {
   }
 
   const extractTextFromPDF = async (file: File): Promise<string> => {
+    if (typeof window === 'undefined') {
+      throw new Error('PDF extraction only supported in browser')
+    }
+    // Dynamically import pdfjsLib on client
+    const pdfjsLib = await import('pdfjs-dist')
+    pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js'
     const data = await file.arrayBuffer()
-
-    const pdf = await pdfjsLib
-      .getDocument({ data: new Uint8Array(data) })
-      .promise
-
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(data) }).promise
     let text = ''
-
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i)
-
       const textContent = await page.getTextContent()
-
-      const pageText = textContent.items
-        .map((item: any) => item.str)
-        .join(' ')
-
+      const pageText = textContent.items.map((item: any) => item.str).join(' ')
       console.log(`PDF Page ${i} Text:`, pageText)
-
       text += pageText + '\n'
     }
-
     return text
   }
 
