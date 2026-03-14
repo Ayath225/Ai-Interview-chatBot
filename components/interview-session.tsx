@@ -1,113 +1,501 @@
-'use client'
+"use client";
 
-import React from "react"
+import React, { useEffect, useRef, useState } from "react";
+import { Button } from "./ui/button";
+import { Card } from "./ui/card";
+import { ScrollArea } from "./ui/scroll-area";
+import { Mic, MicOff, Send, Volume2, VolumeX, Clock } from "lucide-react";
+import { voiceManager } from "../lib/voice";
+import { storage } from "@/lib/storage";
+import type { Message, InterviewSession } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
-import { useChat } from '@ai-sdk/react'
-import { useEffect, useState } from 'react'
-import { Button } from './ui/button'
-import { Card } from './ui/card'
-import { ScrollArea } from './ui/scroll-area'
-import {
-  Mic,
-  MicOff,
-  Send,
-  Volume2,
-  VolumeX,
-  Clock,
-  Save,
-} from 'lucide-react'
-import { voiceManager } from '@/lib/voice'
-import { storage } from '@/lib/storage'
-import type { Message, InterviewSession } from '@/lib/types'
-import { cn } from '@/lib/utils'
+const FALLBACK_NAME = "Candidate";
+const FALLBACK_QUESTIONS = [
+  "Can you briefly introduce yourself and your core strengths?",
+  "Which project on your CV are you most proud of, and why?",
+  "Tell me about a technical challenge you solved recently.",
+  "How do you approach learning a new technology quickly?",
+  "Why are you a strong fit for this role?",
+];
+
+const MAX_SPEECH_WAIT_MS = 30_000;
+
+interface GeneratedQuestionPayload {
+  candidateName?: string;
+  questions?: string[];
+  source?: "deepseek" | "fallback";
+  warning?: string;
+}
+
+interface EvaluateAnswerPayload {
+  Question: string | null;
+  IsWantToShowAgain: boolean;
+  assessment?: "good" | "medium" | "low" | "repeat" | "wrong";
+  feedback?: string;
+  questionDecorator?: string;
+  source?: "deepseek" | "fallback";
+  warning?: string;
+}
 
 interface InterviewSessionProps {
-  cvContent?: string
-  cvFileName?: string
-  onSessionEnd?: (session: InterviewSession) => void
+  cvContent?: string;
+  cvFileName?: string;
+  onSessionEnd?: (session: InterviewSession) => void;
 }
+
+const createMessage = (role: Message["role"], content: string): Message => ({
+  id:
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  role,
+  content,
+  timestamp: Date.now(),
+});
+
+const buildQuestionMessage = (
+  questionText: string,
+  questionNumber: number,
+  includeQuestionNumber = true,
+) => {
+  if (!includeQuestionNumber) {
+    return questionText;
+  }
+
+  return `Question ${questionNumber}: ${questionText}`;
+};
+
+const resolveQuestionDecorator = (
+  decorator: string | undefined,
+  candidateName: string,
+) => {
+  if (!decorator) return "";
+
+  const trimmed = decorator.trim();
+  if (!trimmed) return "";
+
+  return trimmed
+    .replace(/\{\s*candidateName\s*\}/gi, candidateName)
+    .replace(/\{\s*cv\s*user\s*name\s*\}/gi, candidateName)
+    .replace(/\{\s*cvUserName\s*\}/gi, candidateName);
+};
 
 export function InterviewSessionComponent({
   cvContent,
   cvFileName,
   onSessionEnd,
 }: InterviewSessionProps) {
-  const { messages, input, handleInputChange, handleSubmit } = useChat({
-    api: '/api/interview',
-    body: {
-      cvContent,
-    },
-  })
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isPreparingQuestions, setIsPreparingQuestions] = useState(false);
+  const [isEvaluatingAnswer, setIsEvaluatingAnswer] = useState(false);
+  const [stopListening, setStopListening] = useState<(() => void) | null>(null);
+  const [duration, setDuration] = useState(0);
+  const [sessionActive, setSessionActive] = useState(true);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState("");
 
-  const [isListening, setIsListening] = useState(false)
-  const [isSpeaking, setIsSpeaking] = useState(false)
-  const [stopListening, setStopListening] = useState<(() => void) | null>(null)
-  const [duration, setDuration] = useState(0)
-  const [sessionActive, setSessionActive] = useState(true)
+  const [candidateName, setCandidateName] = useState(FALLBACK_NAME);
+  const [questions, setQuestions] = useState<string[]>([]);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(-1);
+  const [hasCompletedQuestionFlow, setHasCompletedQuestionFlow] =
+    useState(false);
+
+  const hasGeneratedQuestions = useRef(false);
+  const inputRef = useRef("");
+  const questionsRef = useRef<string[]>([]);
+  const candidateNameRef = useRef(FALLBACK_NAME);
+  const autoSubmitTimerRef = useRef<number | null>(null);
+  const lastSpokenAssistantMessageIdRef = useRef<string | null>(null);
+  const speechRequestIdRef = useRef(0);
+  const listeningSessionIdRef = useRef(0);
+  const isListeningRef = useRef(false);
+
+  const appendAssistantMessage = (content: string) => {
+    setMessages((prev) => [...prev, createMessage("assistant", content)]);
+  };
+
+  const appendUserMessage = (content: string, feedback?: string) => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        ...createMessage("user", content),
+        feedback,
+      },
+    ]);
+  };
+
+  const startQuestionFlow = (name: string, generatedQuestions: string[]) => {
+    if (!generatedQuestions.length) return;
+
+    setCandidateName(name);
+    candidateNameRef.current = name;
+
+    const sanitizedQuestions = generatedQuestions
+      .map((q) => q.trim())
+      .filter(Boolean);
+    setQuestions(sanitizedQuestions);
+    questionsRef.current = sanitizedQuestions;
+
+    setCurrentQuestionIndex(0);
+    setHasCompletedQuestionFlow(false);
+
+    appendAssistantMessage(
+      `Hi ${name}, welcome to your interview practice session. Let's begin. \n${buildQuestionMessage(
+        sanitizedQuestions[0],
+        1,
+      )}`,
+    );
+  };
+
+  const sendCVToOpenRouter = async () => {
+    setIsPreparingQuestions(true);
+
+    const cvFromStorage = storage.getCV();
+    const resolvedCvContent = cvContent || cvFromStorage?.content || "";
+
+    try {
+      if (!resolvedCvContent.trim()) {
+        startQuestionFlow(FALLBACK_NAME, FALLBACK_QUESTIONS);
+        return;
+      }
+
+      const response = await fetch("/api/interview/questions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ cvContent: resolvedCvContent }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to generate interview questions");
+      }
+
+      const payload = (await response.json()) as GeneratedQuestionPayload;
+      const sanitizedName = (payload.candidateName || FALLBACK_NAME).trim();
+      const sanitizedQuestions = (payload.questions || [])
+        .map((item) => (typeof item === "string" ? item.trim() : ""))
+        .filter(Boolean);
+
+      if (payload.source === "deepseek") {
+        console.log(
+          "[Interview] DeepSeek generated questions:",
+          sanitizedQuestions,
+        );
+      } else {
+        console.log(
+          "[Interview] Using fallback questions:",
+          sanitizedQuestions,
+        );
+      }
+
+      if (payload.warning) {
+        console.warn(
+          "[Interview] Question generation warning:",
+          payload.warning,
+        );
+      }
+
+      if (!sanitizedQuestions.length) {
+        throw new Error("No valid questions returned from question generator");
+      }
+
+      startQuestionFlow(sanitizedName, sanitizedQuestions);
+    } catch (error) {
+      console.error("Question generation error:", error);
+      startQuestionFlow(FALLBACK_NAME, FALLBACK_QUESTIONS);
+    } finally {
+      setIsPreparingQuestions(false);
+    }
+  };
+
+  useEffect(() => {
+    if (hasGeneratedQuestions.current) return;
+    hasGeneratedQuestions.current = true;
+    sendCVToOpenRouter();
+  }, [cvContent]);
+
+  useEffect(() => {
+    inputRef.current = input;
+  }, [input]);
+
+  useEffect(() => {
+    return () => {
+      if (autoSubmitTimerRef.current !== null) {
+        window.clearTimeout(autoSubmitTimerRef.current);
+      }
+    };
+  }, []);
 
   // Track session duration
   useEffect(() => {
-    if (!sessionActive) return
+    if (!sessionActive) return;
     const interval = setInterval(() => {
-      setDuration((d) => d + 1)
-    }, 1000)
-    return () => clearInterval(interval)
-  }, [sessionActive])
+      setDuration((d) => d + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [sessionActive]);
 
-  // Auto-speak assistant responses
+  // Auto-speak only newly added assistant messages.
   useEffect(() => {
-    const lastMessage = messages[messages.length - 1]
-    if (
-      lastMessage &&
-      lastMessage.role === 'assistant' &&
-      !isSpeaking &&
-      sessionActive
-    ) {
-      handleSpeak(lastMessage.content)
+    if (!sessionActive) return;
+
+    const lastMessage = messages[messages.length - 1];
+    if (!lastMessage || lastMessage.role !== "assistant") return;
+
+    if (lastSpokenAssistantMessageIdRef.current === lastMessage.id) {
+      return;
     }
-  }, [messages, isSpeaking, sessionActive])
+
+    lastSpokenAssistantMessageIdRef.current = lastMessage.id;
+    void handleSpeak(lastMessage.content);
+  }, [messages, sessionActive]);
 
   const handleSpeak = async (text: string) => {
-    setIsSpeaking(true)
+    const currentSpeechRequestId = ++speechRequestIdRef.current;
+    setIsSpeaking(true);
+
+    let timeoutId: number | null = null;
     try {
-      await voiceManager.speak(text)
+      const speechTask = voiceManager.speak(text);
+      const timeoutTask = new Promise<void>((_, reject) => {
+        timeoutId = window.setTimeout(() => {
+          reject(new Error("Speech timed out"));
+        }, MAX_SPEECH_WAIT_MS);
+      });
+
+      await Promise.race([speechTask, timeoutTask]);
     } catch (error) {
-      console.error('Speech error:', error)
+      console.error("Speech error:", error);
+      voiceManager.stopSpeaking();
     } finally {
-      setIsSpeaking(false)
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+      if (speechRequestIdRef.current === currentSpeechRequestId) {
+        setIsSpeaking(false);
+      }
     }
-  }
+  };
 
   const handleStartListening = () => {
-    setIsListening(true)
+    if (isSpeaking) {
+      voiceManager.stopSpeaking();
+      speechRequestIdRef.current += 1;
+      setIsSpeaking(false);
+    }
+
+    const listeningSessionId = ++listeningSessionIdRef.current;
+    setIsListening(true);
+    isListeningRef.current = true;
     const stop = voiceManager.startListening(
-      (transcript) => {
-        handleInputChange({
-          target: { value: transcript },
-        } as any)
+      (transcript: string) => {
+        if (
+          !isListeningRef.current ||
+          listeningSessionIdRef.current !== listeningSessionId
+        ) {
+          return;
+        }
+        setInput(transcript);
       },
-      (error) => {
-        console.error('Listening error:', error)
-        setIsListening(false)
+      (error: string) => {
+        if (listeningSessionIdRef.current !== listeningSessionId) {
+          return;
+        }
+        console.error("Listening error:", error);
+        isListeningRef.current = false;
+        setIsListening(false);
+      },
+    );
+    setStopListening(() => stop);
+  };
+
+  const evaluateAnswer = async (
+    question: string,
+    answer: string,
+  ): Promise<EvaluateAnswerPayload> => {
+    const cvFromStorage = storage.getCV();
+    const resolvedCvContent = cvContent || cvFromStorage?.content || "";
+
+    const response = await fetch("/api/interview/evaluate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        question,
+        answer,
+        cvContent: resolvedCvContent,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to evaluate answer");
+    }
+
+    return (await response.json()) as EvaluateAnswerPayload;
+  };
+
+  const submitAnswer = async (answer: string) => {
+    const userInput = answer.trim();
+    if (!userInput || isEvaluatingAnswer) return;
+
+    setInput("");
+
+    if (hasCompletedQuestionFlow) {
+      appendUserMessage(userInput);
+      return;
+    }
+
+    const activeIndex = currentQuestionIndex;
+    const activeQuestion = questionsRef.current[activeIndex];
+    if (activeIndex < 0 || !activeQuestion) {
+      appendUserMessage(userInput);
+      return;
+    }
+
+    setIsEvaluatingAnswer(true);
+    try {
+      const evaluation = await evaluateAnswer(activeQuestion, userInput);
+
+      console.log("[Interview] Answer evaluation:", evaluation);
+      if (evaluation.warning) {
+        console.warn("[Interview] Evaluation warning:", evaluation.warning);
       }
-    )
-    setStopListening(() => stop)
-  }
+
+      appendUserMessage(userInput, evaluation.feedback);
+
+      if (evaluation.IsWantToShowAgain) {
+        const replacementQuestion =
+          typeof evaluation.Question === "string" && evaluation.Question.trim()
+            ? evaluation.Question.trim()
+            : activeQuestion;
+        const decorator = resolveQuestionDecorator(
+          evaluation.questionDecorator,
+          candidateNameRef.current,
+        );
+
+        setQuestions((prev) => {
+          const next = [...prev];
+          next[activeIndex] = replacementQuestion;
+          questionsRef.current = next;
+          return next;
+        });
+
+        appendAssistantMessage(
+          `${decorator}\n${buildQuestionMessage(replacementQuestion, activeIndex + 1)}`,
+        );
+        return;
+      }
+
+      const nextQuestionIndex = activeIndex + 1;
+      if (nextQuestionIndex < questionsRef.current.length) {
+        const shouldHideQuestionNumber = evaluation.assessment === "low";
+        const decorator =
+          resolveQuestionDecorator(
+            evaluation.questionDecorator,
+            candidateNameRef.current,
+          ) ||
+          (evaluation.assessment === "good" ||
+          evaluation.assessment === "medium"
+            ? `Well done ${candidateNameRef.current}.`
+            : "");
+
+        setCurrentQuestionIndex(nextQuestionIndex);
+        appendAssistantMessage(
+          `${decorator ? `${decorator}\n` : ""}${buildQuestionMessage(
+            questionsRef.current[nextQuestionIndex],
+            nextQuestionIndex + 1,
+            !shouldHideQuestionNumber,
+          )}`,
+        );
+        return;
+      }
+
+      setHasCompletedQuestionFlow(true);
+      appendAssistantMessage(
+        `Great work, ${candidateNameRef.current}. You answered all questions. We can now review your performance.`,
+      );
+    } catch (error) {
+      console.error("Answer evaluation error:", error);
+      appendUserMessage(userInput);
+
+      const nextQuestionIndex = activeIndex + 1;
+      if (nextQuestionIndex < questionsRef.current.length) {
+        setCurrentQuestionIndex(nextQuestionIndex);
+        appendAssistantMessage(
+          buildQuestionMessage(
+            questionsRef.current[nextQuestionIndex],
+            nextQuestionIndex + 1,
+          ),
+        );
+      } else {
+        setHasCompletedQuestionFlow(true);
+        appendAssistantMessage(
+          `Great work, ${candidateNameRef.current}. You answered all questions. We can now review your performance.`,
+        );
+      }
+    } finally {
+      setIsEvaluatingAnswer(false);
+    }
+  };
 
   const handleStopListening = () => {
-    stopListening?.()
-    setIsListening(false)
-  }
+    stopListening?.();
+    setStopListening(null);
+    listeningSessionIdRef.current += 1;
+    isListeningRef.current = false;
+    setIsListening(false);
+
+    if (autoSubmitTimerRef.current !== null) {
+      window.clearTimeout(autoSubmitTimerRef.current);
+    }
+
+    // Wait briefly so SpeechRecognition can push final transcript.
+    autoSubmitTimerRef.current = window.setTimeout(() => {
+      const finalAnswer = inputRef.current.trim();
+      if (finalAnswer && !isEvaluatingAnswer) {
+        console.log(
+          "[Interview] Auto-submitting answer after listening stopped:",
+          finalAnswer,
+        );
+        void submitAnswer(finalAnswer);
+      }
+      autoSubmitTimerRef.current = null;
+    }, 350);
+  };
+
+  const handleStopSpeaking = () => {
+    voiceManager.stopSpeaking();
+    speechRequestIdRef.current += 1;
+    setIsSpeaking(false);
+  };
 
   const handleSendMessage = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!input.trim()) return
-    handleSubmit(e)
-  }
+    e.preventDefault();
+
+    if (isListening) {
+      stopListening?.();
+      setStopListening(null);
+      listeningSessionIdRef.current += 1;
+      isListeningRef.current = false;
+      setIsListening(false);
+    }
+
+    if (autoSubmitTimerRef.current !== null) {
+      window.clearTimeout(autoSubmitTimerRef.current);
+      autoSubmitTimerRef.current = null;
+    }
+
+    void submitAnswer(input);
+  };
 
   const handleEndSession = () => {
-    voiceManager.stopSpeaking()
-    setSessionActive(false)
+    voiceManager.stopSpeaking();
+    speechRequestIdRef.current += 1;
+    setSessionActive(false);
 
     const session: InterviewSession = {
       id: Date.now().toString(),
@@ -116,18 +504,18 @@ export function InterviewSessionComponent({
       duration,
       cvFileName,
       cvContent,
-      messages: messages as Message[],
-    }
+      messages,
+    };
 
-    storage.saveInterview(session)
-    onSessionEnd?.(session)
-  }
+    storage.saveInterview(session);
+    onSessionEnd?.(session);
+  };
 
   const formatDuration = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins}:${secs.toString().padStart(2, '0')}`
-  }
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
 
   return (
     <div className="flex flex-col h-screen bg-gradient-to-br from-slate-50 to-slate-100">
@@ -139,7 +527,7 @@ export function InterviewSessionComponent({
               Interview Practice
             </h1>
             <p className="text-sm text-slate-600 mt-1">
-              {cvFileName ? `Using CV: ${cvFileName}` : 'No CV provided'}
+              {cvFileName ? `Using CV: ${cvFileName}` : "No CV provided"}
             </p>
           </div>
           <div className="flex items-center gap-4">
@@ -167,10 +555,11 @@ export function InterviewSessionComponent({
           {messages.length === 0 ? (
             <Card className="p-8 text-center border-dashed">
               <div className="text-slate-500 space-y-2">
-                <p className="text-lg font-semibold">Ready to start?</p>
+                <p className="text-lg font-semibold">
+                  Preparing your interview...
+                </p>
                 <p className="text-sm">
-                  Click the microphone to start speaking, or type your response
-                  below.
+                  Personalized questions are being generated from your CV.
                 </p>
               </div>
             </Card>
@@ -178,35 +567,29 @@ export function InterviewSessionComponent({
             messages.map((message, idx) => (
               <div
                 key={idx}
-                className={cn('flex gap-3 animate-in fade-in', {
-                  'flex-row-reverse': message.role === 'user',
+                className={cn("flex gap-3 animate-in fade-in", {
+                  "flex-row-reverse": message.role === "user",
                 })}
               >
                 <div
                   className={cn(
-                    'w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0',
+                    "w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0",
                     {
-                      'bg-blue-500': message.role === 'user',
-                      'bg-emerald-500': message.role === 'assistant',
-                    }
+                      "bg-blue-500": message.role === "user",
+                      "bg-emerald-500": message.role === "assistant",
+                    },
                   )}
                 >
-                  {message.role === 'user' ? 'You' : 'AI'}
+                  {message.role === "user" ? "You" : "AI"}
                 </div>
                 <Card
-                  className={cn(
-                    'px-4 py-3 max-w-md',
-                    {
-                      'bg-blue-50 border-blue-200':
-                        message.role === 'user',
-                      'bg-emerald-50 border-emerald-200':
-                        message.role === 'assistant',
-                    }
-                  )}
+                  className={cn("px-4 py-3 max-w-md", {
+                    "bg-blue-50 border-blue-200": message.role === "user",
+                    "bg-emerald-50 border-emerald-200":
+                      message.role === "assistant",
+                  })}
                 >
-                  <p className="text-sm text-slate-700">
-                    {message.content}
-                  </p>
+                  <p className="text-sm text-slate-700">{message.content}</p>
                 </Card>
               </div>
             ))
@@ -218,6 +601,12 @@ export function InterviewSessionComponent({
                 <Volume2 className="w-4 h-4 text-emerald-500" />
               </div>
               <span>AI is speaking...</span>
+            </div>
+          )}
+
+          {isEvaluatingAnswer && (
+            <div className="text-xs text-slate-500">
+              Evaluating your answer...
             </div>
           )}
         </div>
@@ -241,7 +630,7 @@ export function InterviewSessionComponent({
             ) : (
               <Button
                 onClick={handleStartListening}
-                disabled={isSpeaking}
+                disabled={isPreparingQuestions || isEvaluatingAnswer}
                 variant="default"
                 size="sm"
                 className="flex-1 gap-2 bg-emerald-600 hover:bg-emerald-700"
@@ -252,9 +641,7 @@ export function InterviewSessionComponent({
             )}
 
             <Button
-              onClick={() =>
-                isSpeaking ? voiceManager.stopSpeaking() : null
-              }
+              onClick={handleStopSpeaking}
               variant="outline"
               size="sm"
               className="gap-2"
@@ -279,14 +666,20 @@ export function InterviewSessionComponent({
             <input
               type="text"
               value={input}
-              onChange={handleInputChange}
-              placeholder="Or type your response..."
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={
+                isPreparingQuestions
+                  ? "Preparing your personalized questions..."
+                  : "Type your answer..."
+              }
               className="flex-1 px-4 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              disabled={isSpeaking}
+              disabled={isPreparingQuestions || isEvaluatingAnswer}
             />
             <Button
               type="submit"
-              disabled={!input || !input.trim() || isSpeaking}
+              disabled={
+                !input.trim() || isPreparingQuestions || isEvaluatingAnswer
+              }
               className="gap-2 bg-blue-600 hover:bg-blue-700"
             >
               <Send className="w-4 h-4" />
@@ -295,10 +688,11 @@ export function InterviewSessionComponent({
           </form>
 
           <p className="text-xs text-slate-500 text-center">
-            Speak naturally or type. AI will respond and speak back to you.
+            Answer each question. If your answer needs retry, AI will re-ask a
+            clearer version.
           </p>
         </div>
       </div>
     </div>
-  )
+  );
 }

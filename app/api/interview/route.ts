@@ -34,5 +34,5 @@ Guidelines:
     })),
   })
 
-  return response.toDataStreamResponse()
+  return response.toTextStreamResponse()
 }

@@ -6,7 +6,7 @@ import { Card } from './ui/card'
 import { Upload, FileText, X, CheckCircle } from 'lucide-react'
 import { storage } from '@/lib/storage'
 import type { CVData } from '@/lib/types'
-import * as pdfjsLib from 'pdfjs-dist'
+// Removed top-level pdfjsLib import to prevent SSR issues
 import * as mammoth from 'mammoth'
 
 interface CVUploadProps {
@@ -23,43 +23,29 @@ export function CVUploadComponent({ onCVSelected }: CVUploadProps) {
   useEffect(() => {
     const cv = storage.getCV()
     setSavedCV(cv || null)
-
-    if (typeof window !== 'undefined') {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js'
-    }
   }, [])
 
   const extractTextFromTxt = async (file: File): Promise<string> => {
     const text = await file.text()
-
-    console.log("TXT Extracted Text:", text)
-
     return text
   }
 
   const extractTextFromPDF = async (file: File): Promise<string> => {
+    if (typeof window === 'undefined') {
+      throw new Error('PDF extraction only supported in browser')
+    }
+    // Dynamically import pdfjsLib on client
+    const pdfjsLib = await import('pdfjs-dist')
+    pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js'
     const data = await file.arrayBuffer()
-
-    const pdf = await pdfjsLib
-      .getDocument({ data: new Uint8Array(data) })
-      .promise
-
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(data) }).promise
     let text = ''
-
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i)
-
       const textContent = await page.getTextContent()
-
-      const pageText = textContent.items
-        .map((item: any) => item.str)
-        .join(' ')
-
-      console.log(`PDF Page ${i} Text:`, pageText)
-
+      const pageText = textContent.items.map((item: any) => item.str).join(' ')
       text += pageText + '\n'
     }
-
     return text
   }
 
@@ -69,9 +55,6 @@ export function CVUploadComponent({ onCVSelected }: CVUploadProps) {
     const result = await mammoth.extractRawText({
       arrayBuffer,
     })
-
-    console.log("DOCX Extracted Text:", result.value)
-
     return result.value
   }
 
@@ -134,8 +117,6 @@ export function CVUploadComponent({ onCVSelected }: CVUploadProps) {
       // ✅ FULL LOG
       console.log("Extracted CV Text:", content)
 
-      // ✅ DEBUG PREVIEW
-      console.log("Extracted CV Preview:", content.slice(0, 1000))
       console.log("Total Characters:", content.length)
 
       if (!content.trim()) {

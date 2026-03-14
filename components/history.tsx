@@ -1,51 +1,46 @@
-'use client'
+"use client";
 
-import { useEffect, useState } from 'react'
-import { storage } from '@/lib/storage'
-import type { InterviewSession } from '@/lib/types'
-import { Card } from './ui/card'
-import { Button } from './ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from './ui/dialog'
-import { ScrollArea } from './ui/scroll-area'
-import { ChevronDown, MessageSquare, Calendar, Clock } from 'lucide-react'
+import { useEffect, useState } from "react";
+import { storage } from "@/lib/storage";
+import type { InterviewSession } from "@/lib/types";
+import { Card } from "./ui/card";
+import { Button } from "./ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
+import { ScrollArea } from "./ui/scroll-area";
+import { ChevronDown, MessageSquare, Calendar, Clock } from "lucide-react";
 
 export function HistoryComponent() {
-  const [sessions, setSessions] = useState<InterviewSession[]>([])
+  const [sessions, setSessions] = useState<InterviewSession[]>([]);
   const [selectedSession, setSelectedSession] =
-    useState<InterviewSession | null>(null)
-  const [isOpen, setIsOpen] = useState(false)
+    useState<InterviewSession | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
-    const history = storage.getInterviewHistory()
-    setSessions(history)
-  }, [])
+    const history = storage.getInterviewHistory();
+    setSessions(history);
+  }, []);
 
   const formatDate = (timestamp: number) => {
-    return new Date(timestamp).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  }
+    return new Date(timestamp).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
 
   const formatDuration = (seconds?: number) => {
-    if (!seconds) return '0m'
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins}m ${secs}s`
-  }
+    if (!seconds) return "0m";
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}m ${secs}s`;
+  };
 
   const handleViewSession = (session: InterviewSession) => {
-    setSelectedSession(session)
-    setIsOpen(true)
-  }
+    setSelectedSession(session);
+    setIsOpen(true);
+  };
 
   if (sessions.length === 0) {
     return (
@@ -64,20 +59,16 @@ export function HistoryComponent() {
           </div>
         </div>
       </Card>
-    )
+    );
   }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-slate-900">
-          Interview History
-        </h2>
+        <h2 className="text-2xl font-bold text-slate-900">Interview History</h2>
         <div className="text-right">
           <p className="text-sm text-slate-600">Total Interviews</p>
-          <p className="text-2xl font-bold text-blue-600">
-            {sessions.length}
-          </p>
+          <p className="text-2xl font-bold text-blue-600">{sessions.length}</p>
         </div>
       </div>
 
@@ -130,13 +121,13 @@ export function HistoryComponent() {
 
       {/* Session Details Dialog */}
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh]">
-          <DialogHeader>
+        <DialogContent className="max-w-2xl w-[95vw] max-h-[85vh] overflow-hidden p-0">
+          <DialogHeader className="px-6 pt-6 pb-2">
             <DialogTitle>Interview Session Details</DialogTitle>
           </DialogHeader>
 
           {selectedSession && (
-            <ScrollArea className="h-full pr-4 space-y-4">
+            <ScrollArea className="h-[70vh] max-h-[calc(85vh-72px)] px-6 pb-6">
               <div className="space-y-4 pb-4">
                 {/* Session Info */}
                 <div className="grid grid-cols-3 gap-4 p-4 bg-slate-50 rounded-lg">
@@ -176,7 +167,7 @@ export function HistoryComponent() {
                       <div key={idx} className="space-y-1">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-semibold text-slate-600 uppercase">
-                            {msg.role === 'user' ? 'You' : 'AI'}
+                            {msg.role === "user" ? "You" : "AI"}
                           </span>
                           <span className="text-xs text-slate-500">
                             {new Date(msg.timestamp).toLocaleTimeString()}
@@ -186,6 +177,11 @@ export function HistoryComponent() {
                           <p className="text-sm text-slate-900">
                             {msg.content}
                           </p>
+                          {msg.role === "user" && msg.feedback && (
+                            <p className="text-xs text-emerald-700 mt-2">
+                              Feedback: {msg.feedback}
+                            </p>
+                          )}
                         </Card>
                       </div>
                     ))}
@@ -211,5 +207,5 @@ export function HistoryComponent() {
         </DialogContent>
       </Dialog>
     </div>
-  )
+  );
 }

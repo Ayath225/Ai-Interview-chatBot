@@ -29,6 +29,7 @@ export default function Home() {
   const handleStartInterview = () => {
     setSessionActive(true)
     setActiveTab('interview')
+    // If there's a saved CV, it will be passed to the InterviewSessionComponent via props
   }
 
   const handleSessionEnd = (session: InterviewSession) => {

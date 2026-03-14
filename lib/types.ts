@@ -3,6 +3,7 @@ export interface Message {
   role: 'user' | 'assistant'
   content: string
   timestamp: number
+  feedback?: string // feedback for user's answer, only for user messages
 }
 
 export interface InterviewSession {
