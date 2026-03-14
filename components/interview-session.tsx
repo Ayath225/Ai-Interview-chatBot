@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { Button } from './ui/button'
 import { Card } from './ui/card'
 import { ScrollArea } from './ui/scroll-area'
-import {Mic,MicOff,Send,Volume2,VolumeX,Clock,Save,} from 'lucide-react'
+import { Mic, MicOff, Send, Volume2, VolumeX, Clock, Save, } from 'lucide-react'
 import { voiceManager } from '@/lib/voice'
 import { storage } from '@/lib/storage'
 import type { Message, InterviewSession } from '@/lib/types'
@@ -32,13 +32,41 @@ export function InterviewSessionComponent({
   const [sessionActive, setSessionActive] = useState(true)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
+   const hasGeneratedQuestions = React.useRef(false);
 
   // send cv content to the LLM
   useEffect(() => {
+    if (hasGeneratedQuestions.current) return;
+    hasGeneratedQuestions.current = true;
     async function sendCVToOpenRouter() {
       const cv = storage.getCV();
       if (!cv || !cv.content) return;
-      const prompt = `Using the following CV text, generate 5 personalized interview questions that an interviewer might ask this candidate. Focus on their skills, experience, and achievements. Make the questions relevant and insightful.\n\nCV Text:\n${cv.content}`;
+      const prompt = `
+You are a professional interviewer.
+
+Using the CV text below, generate 5 personalized interview questions.
+
+Rules:
+- Each question must be SHORT (maximum 20 words).
+- Focus on the candidate's skills, projects, or experience.
+- Avoid generic questions.
+- Make questions clear and direct.
+
+Return the response in JSON format:
+
+{
+  "questions": [
+    "question 1",
+    "question 2",
+    "question 3",
+    "question 4",
+    "question 5"
+  ]
+}
+
+CV Text:
+${cv.content}
+`;
       try {
         const response = await fetch('https://openrouter.ai/api/v1/completions', {
           method: 'POST',
