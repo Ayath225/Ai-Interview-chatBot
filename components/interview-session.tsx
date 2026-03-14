@@ -35,21 +35,30 @@ export function InterviewSessionComponent({
 
   // send cv content to the LLM
   useEffect(() => {
-    async function sendCVToOpenAI() {
+    async function sendCVToOpenRouter() {
       const cv = storage.getCV();
       if (!cv || !cv.content) return;
-      const client = new OpenAI();
+      const prompt = `Using the following CV text, generate 5 personalized interview questions that an interviewer might ask this candidate. Focus on their skills, experience, and achievements. Make the questions relevant and insightful.\n\nCV Text:\n${cv.content}`;
       try {
-        const response = await client.responses.create({
-          model: "gpt-5.4",
-          input: cv.content,
+        const response = await fetch('https://openrouter.ai/api/v1/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer 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',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'gpt-5.4',
+            prompt,
+            max_tokens: 512,
+          }),
         });
-        console.log(response.output_text);
+        const data = await response.json();
+        console.log(data.choices?.[0]?.text || data);
       } catch (err) {
-        console.error("OpenAI error:", err);
+        console.error('OpenRouter error:', err);
       }
     }
-    sendCVToOpenAI();
+    sendCVToOpenRouter();
   }, []);
 
   // Track session duration
