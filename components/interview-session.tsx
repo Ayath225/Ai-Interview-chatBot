@@ -1,23 +1,12 @@
 
 'use client'
-
 import OpenAI from "openai";
-
 import React from "react"
-
 import { useEffect, useState } from 'react'
 import { Button } from './ui/button'
 import { Card } from './ui/card'
 import { ScrollArea } from './ui/scroll-area'
-import {
-  Mic,
-  MicOff,
-  Send,
-  Volume2,
-  VolumeX,
-  Clock,
-  Save,
-} from 'lucide-react'
+import {Mic,MicOff,Send,Volume2,VolumeX,Clock,Save,} from 'lucide-react'
 import { voiceManager } from '@/lib/voice'
 import { storage } from '@/lib/storage'
 import type { Message, InterviewSession } from '@/lib/types'
@@ -34,13 +23,15 @@ export function InterviewSessionComponent({
   cvFileName,
   onSessionEnd,
 }: InterviewSessionProps) {
-  
+
 
   const [isListening, setIsListening] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [stopListening, setStopListening] = useState<(() => void) | null>(null)
   const [duration, setDuration] = useState(0)
   const [sessionActive, setSessionActive] = useState(true)
+  const [messages, setMessages] = useState<Message[]>([])
+  const [input, setInput] = useState('')
 
   // send cv content to the LLM
   useEffect(() => {
@@ -98,9 +89,7 @@ export function InterviewSessionComponent({
     setIsListening(true)
     const stop = voiceManager.startListening(
       (transcript) => {
-        handleInputChange({
-          target: { value: transcript },
-        } as any)
+        setInput(transcript)
       },
       (error) => {
         console.error('Listening error:', error)
@@ -118,7 +107,10 @@ export function InterviewSessionComponent({
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault()
     if (!input.trim()) return
-    handleSubmit(e)
+    // Add your message sending logic here
+    // Example: setMessages([...messages, { id: Date.now().toString(), role: 'user', content: input, timestamp: Date.now() }])
+    setMessages([...messages, { id: Date.now().toString(), role: 'user', content: input, timestamp: Date.now() }])
+    setInput('')
   }
 
   const handleEndSession = () => {
@@ -295,7 +287,7 @@ export function InterviewSessionComponent({
             <input
               type="text"
               value={input}
-              onChange={handleInputChange}
+              onChange={e => setInput(e.target.value)}
               placeholder="Or type your response..."
               className="flex-1 px-4 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               disabled={isSpeaking}
