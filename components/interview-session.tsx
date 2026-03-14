@@ -32,62 +32,63 @@ export function InterviewSessionComponent({
   const [sessionActive, setSessionActive] = useState(true)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
-   const hasGeneratedQuestions = React.useRef(false);
+  const hasGeneratedQuestions = React.useRef(false);
 
   // send cv content to the LLM
-  useEffect(() => {
-    if (hasGeneratedQuestions.current) return;
-    hasGeneratedQuestions.current = true;
-    async function sendCVToOpenRouter() {
-      const cv = storage.getCV();
-      if (!cv || !cv.content) return;
-      const prompt = `
-You are a professional interviewer.
+      useEffect(() => {
+        if (hasGeneratedQuestions.current) return;
+        hasGeneratedQuestions.current = true;
 
-Using the CV text below, generate 5 personalized interview questions.
+        async function sendCVToOpenRouter() {
+          const cv = storage.getCV();
+          if (!cv || !cv.content) return;
+          const prompt = `
+    You are a professional interviewer.
 
-Rules:
-- Each question must be SHORT (maximum 20 words).
-- Focus on the candidate's skills, projects, or experience.
-- Avoid generic questions.
-- Make questions clear and direct.
+    Using the CV text below, generate 5 personalized interview questions.
 
-Return the response in JSON format:
+    Rules:
+    - Each question must be SHORT (maximum 20 words).
+    - Focus on the candidate's skills, projects, or experience.
+    - Avoid generic questions.
+    - Make questions clear and direct.
 
-{
-  "questions": [
-    "question 1",
-    "question 2",
-    "question 3",
-    "question 4",
-    "question 5"
-  ]
-}
+    Return the response in JSON format:
 
-CV Text:
-${cv.content}
-`;
-      try {
-        const response = await fetch('https://openrouter.ai/api/v1/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': 'Bearer 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',
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'gpt-5.4',
-            prompt,
-            max_tokens: 512,
-          }),
-        });
-        const data = await response.json();
-        console.log(data.choices?.[0]?.text || data);
-      } catch (err) {
-        console.error('OpenRouter error:', err);
-      }
+    {
+      "questions": [
+        "question 1",
+        "question 2",
+        "question 3",
+        "question 4",
+        "question 5"
+      ]
     }
-    sendCVToOpenRouter();
-  }, []);
+
+    CV Text:
+    ${cv.content}
+    `;
+          try {
+            const response = await fetch('https://openrouter.ai/api/v1/completions', {
+              method: 'POST',
+              headers: {
+                'Authorization': 'Bearer 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',
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'gpt-5.4',
+                prompt,
+                max_tokens: 512,
+              }),
+            });
+            const data = await response.json();
+            console.log(data.choices?.[0]?.text || data);
+          } catch (err) {
+            console.error('OpenRouter error:', err);
+          }
+        }
+        sendCVToOpenRouter();
+      }, []);
 
   // Track session duration
   useEffect(() => {
