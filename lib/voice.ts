@@ -1,33 +1,173 @@
-export const voiceManager = {
-  speak: (text: string): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      if (!('speechSynthesis' in window)) {
-        reject(new Error('Speech Synthesis not supported'))
-        return
-      }
+let activeAudio: HTMLAudioElement | null = null
+let activeAudioUrl: string | null = null
+let activeSpeechController: AbortController | null = null
 
-      const utterance = new SpeechSynthesisUtterance(text)
-      utterance.rate = 1
-      utterance.pitch = 1
-      utterance.volume = 1
+const clearActiveAudio = () => {
+  if (activeAudio) {
+    activeAudio.pause()
+    activeAudio.src = ''
+    activeAudio = null
+  }
 
-      utterance.onend = () => resolve()
-      utterance.onerror = () =>
-        reject(new Error('Speech synthesis error'))
+  if (activeAudioUrl) {
+    URL.revokeObjectURL(activeAudioUrl)
+    activeAudioUrl = null
+  }
+}
 
-      window.speechSynthesis.cancel()
-      window.speechSynthesis.speak(utterance)
+const speakWithElevenLabs = async (
+  text: string,
+  signal: AbortSignal
+): Promise<void> => {
+  const response = await fetch('/api/tts', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ text }),
+    signal,
+  })
+
+  if (!response.ok) {
+    throw new Error('ElevenLabs TTS request failed')
+  }
+
+  const audioBlob = await response.blob()
+  if (signal.aborted) return
+
+  const audioUrl = URL.createObjectURL(audioBlob)
+  const audio = new Audio(audioUrl)
+
+  activeAudioUrl = audioUrl
+  activeAudio = audio
+
+  await new Promise<void>((resolve, reject) => {
+    const onEnded = () => {
+      cleanup()
+      resolve()
+    }
+
+    const onError = () => {
+      cleanup()
+      reject(new Error('ElevenLabs audio playback failed'))
+    }
+
+    const onAbort = () => {
+      cleanup()
+      resolve()
+    }
+
+    const cleanup = () => {
+      audio.removeEventListener('ended', onEnded)
+      audio.removeEventListener('error', onError)
+      signal.removeEventListener('abort', onAbort)
+      clearActiveAudio()
+    }
+
+    audio.addEventListener('ended', onEnded)
+    audio.addEventListener('error', onError)
+    signal.addEventListener('abort', onAbort, { once: true })
+
+    if (signal.aborted) {
+      onAbort()
+      return
+    }
+
+    audio.play().catch((error) => {
+      cleanup()
+      reject(error)
     })
+  })
+}
+
+const speakWithBrowserSynthesis = (
+  text: string,
+  signal: AbortSignal
+): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    if (!('speechSynthesis' in window)) {
+      reject(new Error('Speech synthesis not supported'))
+      return
+    }
+
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.rate = 1
+    utterance.pitch = 1
+    utterance.volume = 1
+
+    const onAbort = () => {
+      cleanup()
+      resolve()
+    }
+
+    const cleanup = () => {
+      utterance.onend = null
+      utterance.onerror = null
+      signal.removeEventListener('abort', onAbort)
+      window.speechSynthesis.cancel()
+    }
+
+    utterance.onend = () => {
+      cleanup()
+      resolve()
+    }
+
+    utterance.onerror = () => {
+      cleanup()
+      reject(new Error('Speech synthesis error'))
+    }
+
+    signal.addEventListener('abort', onAbort, { once: true })
+
+    if (signal.aborted) {
+      onAbort()
+      return
+    }
+
+    window.speechSynthesis.cancel()
+    window.speechSynthesis.speak(utterance)
+  })
+}
+
+export const voiceManager = {
+  speak: async (text: string): Promise<void> => {
+    const trimmedText = text.trim()
+    if (!trimmedText) return
+
+    voiceManager.stopSpeaking()
+
+    const controller = new AbortController()
+    activeSpeechController = controller
+
+    try {
+      try {
+        await speakWithElevenLabs(trimmedText, controller.signal)
+      } catch {
+        await speakWithBrowserSynthesis(trimmedText, controller.signal)
+      }
+    } finally {
+      if (activeSpeechController === controller) {
+        activeSpeechController = null
+      }
+      clearActiveAudio()
+    }
   },
 
   stopSpeaking: (): void => {
+    activeSpeechController?.abort()
+    activeSpeechController = null
+    clearActiveAudio()
+
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel()
     }
   },
 
   isSpeaking: (): boolean => {
-    return 'speechSynthesis' in window && window.speechSynthesis.speaking
+    return (
+      (!!activeAudio && !activeAudio.paused) ||
+      ('speechSynthesis' in window && window.speechSynthesis.speaking)
+    )
   },
 
   startListening: (
