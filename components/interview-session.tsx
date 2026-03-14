@@ -92,8 +92,14 @@ export function InterviewSessionComponent({
     setMessages((prev) => [...prev, createMessage("assistant", content)]);
   };
 
-  const appendUserMessage = (content: string) => {
-    setMessages((prev) => [...prev, createMessage("user", content)]);
+  const appendUserMessage = (content: string, feedback?: string) => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        ...createMessage("user", content),
+        feedback,
+      },
+    ]);
   };
 
   const startQuestionFlow = (name: string, generatedQuestions: string[]) => {
@@ -312,16 +318,17 @@ export function InterviewSessionComponent({
     const userInput = answer.trim();
     if (!userInput || isEvaluatingAnswer) return;
 
-    appendUserMessage(userInput);
     setInput("");
 
     if (hasCompletedQuestionFlow) {
+      appendUserMessage(userInput);
       return;
     }
 
     const activeIndex = currentQuestionIndex;
     const activeQuestion = questionsRef.current[activeIndex];
     if (activeIndex < 0 || !activeQuestion) {
+      appendUserMessage(userInput);
       return;
     }
 
@@ -333,6 +340,8 @@ export function InterviewSessionComponent({
       if (evaluation.warning) {
         console.warn("[Interview] Evaluation warning:", evaluation.warning);
       }
+
+      appendUserMessage(userInput, evaluation.feedback);
 
       if (evaluation.IsWantToShowAgain) {
         const replacementQuestion =
@@ -346,11 +355,6 @@ export function InterviewSessionComponent({
           questionsRef.current = next;
           return next;
         });
-
-        // const preface =
-        //   evaluation.assessment === "repeat"
-        //     ? "Sure, I will repeat the question in a clearer way."
-        //     : "Let us retry this question with clearer wording.";
 
         appendAssistantMessage(
           `${buildQuestionMessage(replacementQuestion, activeIndex + 1)}`,
@@ -376,6 +380,7 @@ export function InterviewSessionComponent({
       );
     } catch (error) {
       console.error("Answer evaluation error:", error);
+      appendUserMessage(userInput);
 
       const nextQuestionIndex = activeIndex + 1;
       if (nextQuestionIndex < questionsRef.current.length) {

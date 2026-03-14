@@ -186,6 +186,11 @@ export function HistoryComponent() {
                           <p className="text-sm text-slate-900">
                             {msg.content}
                           </p>
+                          {msg.role === 'user' && msg.feedback && (
+                            <p className="text-xs text-emerald-700 mt-2">
+                              Feedback: {msg.feedback}
+                            </p>
+                          )}
                         </Card>
                       </div>
                     ))}
