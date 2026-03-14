@@ -27,9 +27,6 @@ export function CVUploadComponent({ onCVSelected }: CVUploadProps) {
 
   const extractTextFromTxt = async (file: File): Promise<string> => {
     const text = await file.text()
-
-    console.log("TXT Extracted Text:", text)
-
     return text
   }
 
@@ -47,7 +44,6 @@ export function CVUploadComponent({ onCVSelected }: CVUploadProps) {
       const page = await pdf.getPage(i)
       const textContent = await page.getTextContent()
       const pageText = textContent.items.map((item: any) => item.str).join(' ')
-      console.log(`PDF Page ${i} Text:`, pageText)
       text += pageText + '\n'
     }
     return text
@@ -59,9 +55,6 @@ export function CVUploadComponent({ onCVSelected }: CVUploadProps) {
     const result = await mammoth.extractRawText({
       arrayBuffer,
     })
-
-    console.log("DOCX Extracted Text:", result.value)
-
     return result.value
   }
 
@@ -124,8 +117,6 @@ export function CVUploadComponent({ onCVSelected }: CVUploadProps) {
       // ✅ FULL LOG
       console.log("Extracted CV Text:", content)
 
-      // ✅ DEBUG PREVIEW
-      console.log("Extracted CV Preview:", content.slice(0, 1000))
       console.log("Total Characters:", content.length)
 
       if (!content.trim()) {

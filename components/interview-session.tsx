@@ -1,8 +1,10 @@
+
 'use client'
+
+import OpenAI from "openai";
 
 import React from "react"
 
-import { useChat } from '@ai-sdk/react'
 import { useEffect, useState } from 'react'
 import { Button } from './ui/button'
 import { Card } from './ui/card'
@@ -32,18 +34,32 @@ export function InterviewSessionComponent({
   cvFileName,
   onSessionEnd,
 }: InterviewSessionProps) {
-  const { messages, input, handleInputChange, handleSubmit } = useChat({
-    api: '/api/interview',
-    body: {
-      cvContent,
-    },
-  })
+  
 
   const [isListening, setIsListening] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [stopListening, setStopListening] = useState<(() => void) | null>(null)
   const [duration, setDuration] = useState(0)
   const [sessionActive, setSessionActive] = useState(true)
+
+  // send cv content to the LLM
+  useEffect(() => {
+    async function sendCVToOpenAI() {
+      const cv = storage.getCV();
+      if (!cv || !cv.content) return;
+      const client = new OpenAI();
+      try {
+        const response = await client.responses.create({
+          model: "gpt-5.4",
+          input: cv.content,
+        });
+        console.log(response.output_text);
+      } catch (err) {
+        console.error("OpenAI error:", err);
+      }
+    }
+    sendCVToOpenAI();
+  }, []);
 
   // Track session duration
   useEffect(() => {
