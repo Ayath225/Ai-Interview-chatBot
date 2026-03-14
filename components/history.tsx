@@ -121,13 +121,13 @@ export function HistoryComponent() {
 
       {/* Session Details Dialog */}
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh]">
-          <DialogHeader>
+        <DialogContent className="max-w-2xl w-[95vw] max-h-[85vh] overflow-hidden p-0">
+          <DialogHeader className="px-6 pt-6 pb-2">
             <DialogTitle>Interview Session Details</DialogTitle>
           </DialogHeader>
 
           {selectedSession && (
-            <ScrollArea className="h-full pr-4 space-y-4">
+            <ScrollArea className="h-[70vh] max-h-[calc(85vh-72px)] px-6 pb-6">
               <div className="space-y-4 pb-4">
                 {/* Session Info */}
                 <div className="grid grid-cols-3 gap-4 p-4 bg-slate-50 rounded-lg">
