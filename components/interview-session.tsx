@@ -71,7 +71,7 @@ ${cv.content}
         const response = await fetch('https://openrouter.ai/api/v1/completions', {
           method: 'POST',
           headers: {
-            'Authorization': 'Bearer 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',
+            'Authorization': 'Bearer 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',
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
