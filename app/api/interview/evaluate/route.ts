@@ -131,9 +131,10 @@ export async function POST(request: Request) {
         }
 
         Rules:
+        - user answer can have typos and grammatical errors, but if the intent is clear and answer is relevant, it should be considered good/medium/low based on the quality of the answer.
         - If answer is good, medium, or low but still acceptable: return "Question": null and "IsWantToShowAgain": false.
-        - If the user asks to repeat the question (example: can you repeat, say again): return "IsWantToShowAgain": true and "Question" as the same question rephrased clearly.
-        - If answer is wrong/irrelevant: return "IsWantToShowAgain": true and "Question" as a clearer replacement of the same intent.
+        - If the user asks to repeat the question (example: can you repeat, say again): return "IsWantToShowAgain": true and "Question" as the same question rephrased clearly and tell them like this - "sure i will repeat that." in a friendly tone.
+        - If answer is wrong/irrelevant: return "IsWantToShowAgain": true and "Question" as a clearer replacement of the same intent + tell them why your answer is wrong.
         - If "IsWantToShowAgain" is false, "Question" must be null.
         - Keep returned Question concise (max 20 words).
         - Output JSON only.

@@ -139,18 +139,17 @@ export const voiceManager = {
     const controller = new AbortController()
     activeSpeechController = controller
 
-    try {
       try {
         await speakWithElevenLabs(trimmedText, controller.signal)
       } catch {
         await speakWithBrowserSynthesis(trimmedText, controller.signal)
       }
-    } finally {
-      if (activeSpeechController === controller) {
-        activeSpeechController = null
+      finally {
+        if (activeSpeechController === controller) {
+          activeSpeechController = null
+        }
+        clearActiveAudio()
       }
-      clearActiveAudio()
-    }
   },
 
   stopSpeaking: (): void => {
