@@ -82,6 +82,8 @@ export function InterviewSessionComponent({
   const questionsRef = useRef<string[]>([])
   const candidateNameRef = useRef(FALLBACK_NAME)
   const autoSubmitTimerRef = useRef<number | null>(null)
+  const lastSpokenAssistantMessageIdRef = useRef<string | null>(null)
+  const speechRequestIdRef = useRef(0)
 
   const appendAssistantMessage = (content: string) => {
     setMessages((prev) => [...prev, createMessage('assistant', content)])
@@ -192,20 +194,23 @@ export function InterviewSessionComponent({
     return () => clearInterval(interval)
   }, [sessionActive])
 
-  // Auto-speak assistant responses
+  // Auto-speak only newly added assistant messages.
   useEffect(() => {
+    if (!sessionActive) return
+
     const lastMessage = messages[messages.length - 1]
-    if (
-      lastMessage &&
-      lastMessage.role === 'assistant' &&
-      !isSpeaking &&
-      sessionActive
-    ) {
-      handleSpeak(lastMessage.content)
+    if (!lastMessage || lastMessage.role !== 'assistant') return
+
+    if (lastSpokenAssistantMessageIdRef.current === lastMessage.id) {
+      return
     }
-  }, [messages, isSpeaking, sessionActive])
+
+    lastSpokenAssistantMessageIdRef.current = lastMessage.id
+    void handleSpeak(lastMessage.content)
+  }, [messages, sessionActive])
 
   const handleSpeak = async (text: string) => {
+    const currentSpeechRequestId = ++speechRequestIdRef.current
     setIsSpeaking(true)
 
     let timeoutId: number | null = null
@@ -225,13 +230,16 @@ export function InterviewSessionComponent({
       if (timeoutId !== null) {
         window.clearTimeout(timeoutId)
       }
-      setIsSpeaking(false)
+      if (speechRequestIdRef.current === currentSpeechRequestId) {
+        setIsSpeaking(false)
+      }
     }
   }
 
   const handleStartListening = () => {
     if (isSpeaking) {
       voiceManager.stopSpeaking()
+      speechRequestIdRef.current += 1
       setIsSpeaking(false)
     }
 
@@ -383,6 +391,7 @@ export function InterviewSessionComponent({
 
   const handleStopSpeaking = () => {
     voiceManager.stopSpeaking()
+    speechRequestIdRef.current += 1
     setIsSpeaking(false)
   }
 
@@ -393,6 +402,7 @@ export function InterviewSessionComponent({
 
   const handleEndSession = () => {
     voiceManager.stopSpeaking()
+    speechRequestIdRef.current += 1
     setSessionActive(false)
 
     const session: InterviewSession = {
