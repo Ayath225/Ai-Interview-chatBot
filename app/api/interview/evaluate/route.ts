@@ -7,6 +7,7 @@ interface EvaluatePayload {
     IsWantToShowAgain: boolean;
     assessment: 'good' | 'medium' | 'low' | 'repeat' | 'wrong';
     feedback?: string;
+    questionDecorator?: string;
     source: 'deepseek' | 'fallback';
     warning?: string;
 }
@@ -41,9 +42,6 @@ const buildRetryQuestion = (question: string): string => {
 
 const fallbackEvaluate = (question: string, answer: string, warning: string): EvaluatePayload => {
     const trimmedAnswer = answer.trim()
-    const loweredAnswer = trimmedAnswer.toLowerCase()
-
-
 
     const wordCount = trimmedAnswer.split(/\s+/).filter(Boolean).length
     if (wordCount < 4) {
@@ -52,6 +50,7 @@ const fallbackEvaluate = (question: string, answer: string, warning: string): Ev
             IsWantToShowAgain: true,
             assessment: 'wrong',
             feedback: 'Answer is too short. Asking a clearer version of the same question.',
+            questionDecorator: 'Let us try that once more.',
             source: 'fallback',
             warning,
         }
@@ -62,6 +61,7 @@ const fallbackEvaluate = (question: string, answer: string, warning: string): Ev
         IsWantToShowAgain: false,
         assessment: wordCount > 20 ? 'good' : 'medium',
         feedback: 'Answer accepted. Proceed to next question.',
+        questionDecorator: 'Well done {candidateName}.',
         source: 'fallback',
         warning,
     }
@@ -104,14 +104,21 @@ export async function POST(request: Request) {
         "Question": null | "string",
         "IsWantToShowAgain": true | false,
         "assessment": "good" | "medium" | "low" | "repeat" | "wrong",
-        "feedback": "short text"
+        "feedback": "short text",
+        "questionDecorator": null | "string"
         }
 
         Rules:
         - user answer can have typos and grammatical errors, but if the intent is clear and answer is relevant, it should be considered good/medium/low based on the quality of the answer.
         - If answer is good, medium, or low but still acceptable: return "Question": null and "IsWantToShowAgain": false.
-        - If the user asks to repeat the question (example: can you repeat, say again): return "IsWantToShowAgain": true and "Question" as the same question rephrased clearly and tell them like this - "sure i will repeat that." in a friendly tone.
-        - If answer is wrong/irrelevant: return "IsWantToShowAgain": true and "Question" as a clearer replacement of the same intent + tell them why your answer is wrong.
+        - If the user asks to repeat the question (example: can you repeat, say again): return "IsWantToShowAgain": true and "Question" as the same question rephrased clearly
+        - "questionDecorator" is an expression reacting to the user's answer quality, shown before the next question.
+        - Generate a natural, professional, and specific "questionDecorator" based on the user's given answer.
+        - Use only professional phrases (no slang, no casual text, no emojis, no exaggerated praise).
+        - Keep "questionDecorator" concise (about 6-16 words), grammatically correct, and context-aware.
+        - For good/medium answers, prefer constructive praise (example: "That is a clear and relevant explanation, {candidateName}.").
+        - For low/wrong answers (without repeat), use supportive coaching tone (example: "Your direction is reasonable; add one concrete technical detail.").
+        - If there is no useful decorator, set "questionDecorator" to null.
         - If "IsWantToShowAgain" is false, "Question" must be null.
         - Keep returned Question concise (max 20 words).
         - Output JSON only.
@@ -188,6 +195,8 @@ export async function POST(request: Request) {
                     ? parsed.assessment
                     : 'medium',
             feedback: typeof parsed.feedback === 'string' ? parsed.feedback : undefined,
+            questionDecorator:
+                typeof parsed.questionDecorator === 'string' ? parsed.questionDecorator.trim() || undefined : undefined,
             source: 'deepseek',
         }
 

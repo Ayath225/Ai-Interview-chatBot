@@ -33,6 +33,7 @@ interface EvaluateAnswerPayload {
   IsWantToShowAgain: boolean;
   assessment?: "good" | "medium" | "low" | "repeat" | "wrong";
   feedback?: string;
+  questionDecorator?: string;
   source?: "deepseek" | "fallback";
   warning?: string;
 }
@@ -55,6 +56,21 @@ const createMessage = (role: Message["role"], content: string): Message => ({
 
 const buildQuestionMessage = (questionText: string, questionNumber: number) => {
   return `Question ${questionNumber}: ${questionText}`;
+};
+
+const resolveQuestionDecorator = (
+  decorator: string | undefined,
+  candidateName: string,
+) => {
+  if (!decorator) return "";
+
+  const trimmed = decorator.trim();
+  if (!trimmed) return "";
+
+  return trimmed
+    .replace(/\{\s*candidateName\s*\}/gi, candidateName)
+    .replace(/\{\s*cv\s*user\s*name\s*\}/gi, candidateName)
+    .replace(/\{\s*cvUserName\s*\}/gi, candidateName);
 };
 
 export function InterviewSessionComponent({
@@ -348,6 +364,10 @@ export function InterviewSessionComponent({
           typeof evaluation.Question === "string" && evaluation.Question.trim()
             ? evaluation.Question.trim()
             : activeQuestion;
+        const decorator = resolveQuestionDecorator(
+          evaluation.questionDecorator,
+          candidateNameRef.current,
+        );
 
         setQuestions((prev) => {
           const next = [...prev];
@@ -357,19 +377,29 @@ export function InterviewSessionComponent({
         });
 
         appendAssistantMessage(
-          `${buildQuestionMessage(replacementQuestion, activeIndex + 1)}`,
+          `${decorator}\n${buildQuestionMessage(replacementQuestion, activeIndex + 1)}`,
         );
         return;
       }
 
       const nextQuestionIndex = activeIndex + 1;
       if (nextQuestionIndex < questionsRef.current.length) {
+        const decorator =
+          resolveQuestionDecorator(
+            evaluation.questionDecorator,
+            candidateNameRef.current,
+          ) ||
+          (evaluation.assessment === "good" ||
+          evaluation.assessment === "medium"
+            ? `Well done ${candidateNameRef.current}.`
+            : "");
+
         setCurrentQuestionIndex(nextQuestionIndex);
         appendAssistantMessage(
-          buildQuestionMessage(
+          `${decorator ? `${decorator}\n` : ""}${buildQuestionMessage(
             questionsRef.current[nextQuestionIndex],
             nextQuestionIndex + 1,
-          ),
+          )}`,
         );
         return;
       }
