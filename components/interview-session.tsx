@@ -85,6 +85,8 @@ export function InterviewSessionComponent({
   const autoSubmitTimerRef = useRef<number | null>(null);
   const lastSpokenAssistantMessageIdRef = useRef<string | null>(null);
   const speechRequestIdRef = useRef(0);
+  const listeningSessionIdRef = useRef(0);
+  const isListeningRef = useRef(false);
 
   const appendAssistantMessage = (content: string) => {
     setMessages((prev) => [...prev, createMessage("assistant", content)]);
@@ -255,13 +257,25 @@ export function InterviewSessionComponent({
       setIsSpeaking(false);
     }
 
+    const listeningSessionId = ++listeningSessionIdRef.current;
     setIsListening(true);
+    isListeningRef.current = true;
     const stop = voiceManager.startListening(
       (transcript: string) => {
+        if (
+          !isListeningRef.current ||
+          listeningSessionIdRef.current !== listeningSessionId
+        ) {
+          return;
+        }
         setInput(transcript);
       },
       (error: string) => {
+        if (listeningSessionIdRef.current !== listeningSessionId) {
+          return;
+        }
         console.error("Listening error:", error);
+        isListeningRef.current = false;
         setIsListening(false);
       },
     );
@@ -385,6 +399,9 @@ export function InterviewSessionComponent({
 
   const handleStopListening = () => {
     stopListening?.();
+    setStopListening(null);
+    listeningSessionIdRef.current += 1;
+    isListeningRef.current = false;
     setIsListening(false);
 
     if (autoSubmitTimerRef.current !== null) {
@@ -413,6 +430,20 @@ export function InterviewSessionComponent({
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (isListening) {
+      stopListening?.();
+      setStopListening(null);
+      listeningSessionIdRef.current += 1;
+      isListeningRef.current = false;
+      setIsListening(false);
+    }
+
+    if (autoSubmitTimerRef.current !== null) {
+      window.clearTimeout(autoSubmitTimerRef.current);
+      autoSubmitTimerRef.current = null;
+    }
+
     void submitAnswer(input);
   };
 
