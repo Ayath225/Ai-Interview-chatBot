@@ -110,16 +110,28 @@ export async function POST(request: Request) {
 
         Rules:
         - user answer can have typos and grammatical errors, but if the intent is clear and answer is relevant, it should be considered good/medium/low based on the quality of the answer.
-        - If answer is good, medium, or low but still acceptable: return "Question": null and "IsWantToShowAgain": false.
+        - If answer is good or medium or still acceptable: return "Question": null and "IsWantToShowAgain": false.
         - If the user asks to repeat the question (example: can you repeat, say again): return "IsWantToShowAgain": true and "Question" as the same question rephrased clearly
         - "questionDecorator" is an expression reacting to the user's answer quality, shown before the next question.
         - Generate a natural, professional, and specific "questionDecorator" based on the user's given answer.
         - Use only professional phrases (no slang, no casual text, no emojis, no exaggerated praise).
         - Keep "questionDecorator" concise (about 6-16 words), grammatically correct, and context-aware.
         - For good/medium answers, prefer constructive praise (example: "That is a clear and relevant explanation, {candidateName}.").
-        - For low/wrong answers (without repeat), use supportive coaching tone (example: "Your direction is reasonable; add one concrete technical detail.").
+
+        - If the status is "wrong":
+        Respond in a supportive coaching tone and gently indicate that the answer is incorrect in the questionDecorator.
+        (e.g., "That's okay, not quite correct. Let's move on to another question.").
+        Then ask a completely different question based on the CV content.
+        The new question must not be null.
+        Set "IsWantToShowAgain" to true.
+
+        - If the status is "low":
+        Treat the answer as partially correct but lacking detail.
+        Ask a follow-up question related to the user's given answer to help them expand or clarify it.
+        The follow-up question must not be null.
+        Set "IsWantToShowAgain" to true.
+
         - If there is no useful decorator, set "questionDecorator" to null.
-        - If "IsWantToShowAgain" is false, "Question" must be null.
         - Keep returned Question concise (max 20 words).
         - Output JSON only.
 
@@ -178,6 +190,7 @@ export async function POST(request: Request) {
                 )
             )
         }
+        console.log("Parsed Evaluation Result:", parsed)
 
         const isWantToShowAgain = Boolean(parsed.IsWantToShowAgain)
         const parsedQuestion =

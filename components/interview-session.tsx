@@ -54,7 +54,15 @@ const createMessage = (role: Message["role"], content: string): Message => ({
   timestamp: Date.now(),
 });
 
-const buildQuestionMessage = (questionText: string, questionNumber: number) => {
+const buildQuestionMessage = (
+  questionText: string,
+  questionNumber: number,
+  includeQuestionNumber = true,
+) => {
+  if (!includeQuestionNumber) {
+    return questionText;
+  }
+
   return `Question ${questionNumber}: ${questionText}`;
 };
 
@@ -384,6 +392,7 @@ export function InterviewSessionComponent({
 
       const nextQuestionIndex = activeIndex + 1;
       if (nextQuestionIndex < questionsRef.current.length) {
+        const shouldHideQuestionNumber = evaluation.assessment === "low";
         const decorator =
           resolveQuestionDecorator(
             evaluation.questionDecorator,
@@ -399,6 +408,7 @@ export function InterviewSessionComponent({
           `${decorator ? `${decorator}\n` : ""}${buildQuestionMessage(
             questionsRef.current[nextQuestionIndex],
             nextQuestionIndex + 1,
+            !shouldHideQuestionNumber,
           )}`,
         );
         return;
