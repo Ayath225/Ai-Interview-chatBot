@@ -43,7 +43,7 @@ export const voiceManager = {
     }
 
     const recognition = new SpeechRecognition()
-    recognition.continuous = false
+    recognition.continuous = true
     recognition.interimResults = true
     recognition.language = 'en-US'
 
