@@ -24,7 +24,7 @@ const MAX_SPEECH_WAIT_MS = 30_000;
 interface GeneratedQuestionPayload {
   candidateName?: string;
   questions?: string[];
-  source?: "openrouter" | "fallback";
+  source?: "deepseek" | "fallback";
   warning?: string;
 }
 
@@ -33,7 +33,7 @@ interface EvaluateAnswerPayload {
   IsWantToShowAgain: boolean;
   assessment?: "good" | "medium" | "low" | "repeat" | "wrong";
   feedback?: string;
-  source?: "openrouter" | "fallback";
+  source?: "deepseek" | "fallback";
   warning?: string;
 }
 
@@ -155,9 +155,9 @@ export function InterviewSessionComponent({
         .map((item) => (typeof item === "string" ? item.trim() : ""))
         .filter(Boolean);
 
-      if (payload.source === "openrouter") {
+      if (payload.source === "deepseek") {
         console.log(
-          "[Interview] OpenRouter generated questions:",
+          "[Interview] DeepSeek generated questions:",
           sanitizedQuestions,
         );
       } else {

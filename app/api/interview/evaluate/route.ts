@@ -1,24 +1,15 @@
 import { NextResponse } from 'next/server'
 
-const DEFAULT_MODEL = 'openai/gpt-4o-mini'
-
-interface OpenRouterChoice {
-    text?: string
-}
-
-interface OpenRouterResponse {
-    choices?: OpenRouterChoice[]
-}
+const DEFAULT_MODEL = 'deepseek-chat'
 
 interface EvaluatePayload {
-    Question: string | null
-    IsWantToShowAgain: boolean
-    assessment: 'good' | 'medium' | 'low' | 'repeat' | 'wrong'
-    feedback?: string
-    source: 'openrouter' | 'fallback'
-    warning?: string
+    Question: string | null;
+    IsWantToShowAgain: boolean;
+    assessment: 'good' | 'medium' | 'low' | 'repeat' | 'wrong';
+    feedback?: string;
+    source: 'deepseek' | 'fallback';
+    warning?: string;
 }
-
 const extractJsonText = (rawText: string): string => {
     const fencedMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/i)
     if (fencedMatch?.[1]) {
@@ -52,21 +43,7 @@ const fallbackEvaluate = (question: string, answer: string, warning: string): Ev
     const trimmedAnswer = answer.trim()
     const loweredAnswer = trimmedAnswer.toLowerCase()
 
-    const wantsRepeat =
-        /repeat|again|can you repeat|pardon|didn.?t understand|say that again|what do you mean/.test(
-            loweredAnswer
-        )
 
-    if (wantsRepeat) {
-        return {
-            Question: buildRepeatQuestion(question),
-            IsWantToShowAgain: true,
-            assessment: 'repeat',
-            feedback: 'Repeating the same question in simpler wording.',
-            source: 'fallback',
-            warning,
-        }
-    }
 
     const wordCount = trimmedAnswer.split(/\s+/).filter(Boolean).length
     if (wordCount < 4) {
@@ -108,18 +85,18 @@ export async function POST(request: Request) {
             )
         }
 
-        const apiKey = process.env.OPENROUTER_API_KEY
+        const apiKey = process.env.DEEPSEEK_API_KEY
         if (!apiKey) {
             return NextResponse.json(
                 fallbackEvaluate(
                     question,
                     answer,
-                    'OPENROUTER_API_KEY is missing. Used fallback answer evaluation.'
+                    'DEEPSEEK_API_KEY is missing. Used fallback answer evaluation.'
                 )
             )
         }
 
-        const model = process.env.OPENROUTER_MODEL || DEFAULT_MODEL
+        const model = process.env.DEEPSEEK_MODEL || DEFAULT_MODEL
         const prompt = `You are an interview answer evaluator.
 
         Given QUESTION and ANSWER, return STRICT JSON in this exact format:
@@ -148,8 +125,8 @@ export async function POST(request: Request) {
         ANSWER:
         ${answer}`
 
-        const openRouterResponse = await fetch(
-            'https://openrouter.ai/api/v1/completions',
+        const deepseekResponse = await fetch(
+            'https://api.deepseek.com/v1/chat/completions',
             {
                 method: 'POST',
                 headers: {
@@ -158,7 +135,9 @@ export async function POST(request: Request) {
                 },
                 body: JSON.stringify({
                     model,
-                    prompt,
+                    messages: [
+                        { role: 'system', content: prompt }
+                    ],
                     max_tokens: 400,
                     temperature: 0.2,
                 }),
@@ -166,19 +145,19 @@ export async function POST(request: Request) {
             }
         )
 
-        if (!openRouterResponse.ok) {
-            const details = await openRouterResponse.text()
+        if (!deepseekResponse.ok) {
+            const details = await deepseekResponse.text()
             return NextResponse.json(
                 fallbackEvaluate(
                     question,
                     answer,
-                    `OpenRouter evaluation failed. Used fallback evaluation. Details: ${details}`
+                    `DeepSeek evaluation failed. Used fallback evaluation. Details: ${details}`
                 )
             )
         }
 
-        const openRouterJson = (await openRouterResponse.json()) as OpenRouterResponse
-        const rawText = openRouterJson.choices?.[0]?.text || ''
+        const deepseekJson = await deepseekResponse.json()
+        const rawText = deepseekJson.choices?.[0]?.message?.content || ''
 
         let parsed: Partial<EvaluatePayload> = {}
         try {
@@ -188,7 +167,7 @@ export async function POST(request: Request) {
                 fallbackEvaluate(
                     question,
                     answer,
-                    `OpenRouter evaluation returned non-JSON output. Used fallback evaluation. Raw output: ${rawText}`
+                    `DeepSeek evaluation returned non-JSON output. Used fallback evaluation. Raw output: ${rawText}`
                 )
             )
         }
@@ -209,7 +188,7 @@ export async function POST(request: Request) {
                     ? parsed.assessment
                     : 'medium',
             feedback: typeof parsed.feedback === 'string' ? parsed.feedback : undefined,
-            source: 'openrouter',
+            source: 'deepseek',
         }
 
         return NextResponse.json(response)

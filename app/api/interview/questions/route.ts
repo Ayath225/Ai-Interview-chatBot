@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 
-const DEFAULT_MODEL = 'openai/gpt-4o-mini'
+const DEFAULT_MODEL = 'deepseek-chat'
 const MAX_QUESTIONS = 5
 const FALLBACK_NAME = 'Candidate'
 const FALLBACK_QUESTIONS = [
@@ -11,12 +11,16 @@ const FALLBACK_QUESTIONS = [
   'Why are you a strong fit for this role?',
 ]
 
-interface OpenRouterChoice {
-  text?: string
+interface DeepSeekMessage {
+  content?: string
 }
 
-interface OpenRouterResponse {
-  choices?: OpenRouterChoice[]
+interface DeepSeekChoice {
+  message?: DeepSeekMessage
+}
+
+interface DeepSeekResponse {
+  choices?: DeepSeekChoice[]
 }
 
 interface QuestionPayload {
@@ -27,7 +31,7 @@ interface QuestionPayload {
 interface QuestionResponse {
   candidateName: string
   questions: string[]
-  source: 'openrouter' | 'fallback'
+  source: 'deepseek' | 'fallback'
   warning?: string
 }
 
@@ -94,15 +98,15 @@ export async function POST(request: Request) {
       )
     }
 
-    const apiKey = process.env.OPENROUTER_API_KEY
+    const apiKey = process.env.DEEPSEEK_API_KEY
     if (!apiKey) {
       return fallbackSuccessResponse(
         cvContent,
-        'OPENROUTER_API_KEY is missing. Returned fallback interview questions.'
+        'DEEPSEEK_API_KEY is missing. Returned fallback interview questions.'
       )
     }
 
-    const model = process.env.OPENROUTER_MODEL || DEFAULT_MODEL
+    const model = process.env.DEEPSEEK_MODEL || DEFAULT_MODEL
 
     const prompt = `You are a professional interviewer.
 
@@ -121,8 +125,8 @@ export async function POST(request: Request) {
     CV Text:
     ${cvContent}`
 
-    const openRouterResponse = await fetch(
-      'https://openrouter.ai/api/v1/completions',
+    const deepSeekResponse = await fetch(
+      'https://api.deepseek.com/v1/chat/completions',
       {
         method: 'POST',
         headers: {
@@ -131,7 +135,7 @@ export async function POST(request: Request) {
         },
         body: JSON.stringify({
           model,
-          prompt,
+          messages: [{ role: 'system', content: prompt }],
           max_tokens: 700,
           temperature: 0.4,
         }),
@@ -139,16 +143,16 @@ export async function POST(request: Request) {
       }
     )
 
-    if (!openRouterResponse.ok) {
-      const details = await openRouterResponse.text()
+    if (!deepSeekResponse.ok) {
+      const details = await deepSeekResponse.text()
       return fallbackSuccessResponse(
         cvContent,
-        `OpenRouter request failed. Returned fallback questions. Details: ${details}`
+        `DeepSeek request failed. Returned fallback questions. Details: ${details}`
       )
     }
 
-    const openRouterJson = (await openRouterResponse.json()) as OpenRouterResponse
-    const rawText = openRouterJson.choices?.[0]?.text || ''
+    const deepSeekJson = (await deepSeekResponse.json()) as DeepSeekResponse
+    const rawText = deepSeekJson.choices?.[0]?.message?.content || ''
 
     let parsed: QuestionPayload = {}
     try {
@@ -156,7 +160,7 @@ export async function POST(request: Request) {
     } catch {
       return fallbackSuccessResponse(
         cvContent,
-        `OpenRouter returned non-JSON output. Returned fallback questions. Raw output: ${rawText}`
+        `DeepSeek returned non-JSON output. Returned fallback questions. Raw output: ${rawText}`
       )
     }
 
@@ -173,7 +177,7 @@ export async function POST(request: Request) {
     if (!questions.length) {
       return fallbackSuccessResponse(
         cvContent,
-        'OpenRouter returned no valid questions. Returned fallback questions.'
+        'DeepSeek returned no valid questions. Returned fallback questions.'
       )
     }
 
@@ -184,7 +188,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       candidateName,
       questions,
-      source: 'openrouter',
+      source: 'deepseek',
     })
   } catch (error) {
     const details = error instanceof Error ? error.message : 'Unexpected server error.'
